@@ -5,30 +5,50 @@ from starlette.middleware.cors import CORSMiddleware
 import uvicorn, aiohttp, asyncio
 from io import BytesIO
 
-from fastai import *
 from fastai.vision import *
+from fastai.vision.gan import *
 
 # model_file_url = 'https://www.dropbox.com/s/y4kl2gv1akv7y4i/stage-2.pth?raw=1'
 # model_file_name = 'model'
-model_file_url = 'https://drive.google.com/uc?export=download&id=1mqJytX0sLwOJhkGtDCdb8MVqW1qNpvjk'
+model_file_url = 'https://www.dropbox.com/s/t9vgaqatqrhtsxq/center_text__final_gen.pth?dl=1'
+# model_file_url = 'https://www.dropbox.com/s/mdc0ilrr5445zji/export.pkl?dl=0' 
 model_file_name = 'center_text__final_gen'
+# model_file_name = 'export'
 classes = ['black', 'grizzly', 'teddys']
 path = Path(__file__).parent
+print(f"THIS IS MY PAAAAATH {path}")
+# Path Config
+# PATH = Path('data')
+PATH = path/'data'
+print(f"PATH: {PATH}")
+CLEAN = PATH/'clean'
+MARKED = PATH/'marked'
+
+# CLEAN.mkdir(exist_ok=True)
+# MARKED.mkdir(exist_ok=True)
+
+# Modeling Config
+prefix = 'test_'
+
+# Gradual Resizing
+bs,size = 32, 128
+# bs,size = 24,160
+# bs,size = 8,256
 
 # GAN Stuff
-def get_data(bs,size,src,clean_path):
-    tfms = get_transforms(do_flip=False, max_rotate=5.0, max_zoom=1.05, max_warp=0)
+# def get_data(bs,size,src,clean_path):
+#     tfms = get_transforms(do_flip=False, max_rotate=5.0, max_zoom=1.05, max_warp=0)
     
-    data = (src.label_from_func(lambda x: clean_path/x.name)
-           .transform(tfms, size=size, tfm_y=True)
-           .databunch(bs=bs).normalize(imagenet_stats, do_y=True))
+#     data = (src.label_from_func(lambda x: clean_path/x.name)
+#            .transform(tfms, size=size, tfm_y=True)
+#            .databunch(bs=bs).normalize(imagenet_stats, do_y=True))
 
-    data.c = 3
-    return data
+#     data.c = 3
+#     return data
 
-def create_gen_learner():
-    return unet_learner(data_gen, arch, wd=wd, blur=True, norm_type=NormType.Weight,
-                         self_attention=True, y_range=y_range, loss_func=loss_gen)
+# def create_gen_learner():
+#     return unet_learner(data_gen, arch, wd=wd, blur=True, norm_type=NormType.Weight,
+#                          self_attention=True, y_range=y_range, loss_func=loss_gen)
 
 # App Stuff
 app = Starlette()
@@ -50,7 +70,8 @@ async def download_file(url, dest):
 #     return learn
 
 async def setup_gan_learner():
-    await download_file(model_file_url, path/'models'/f'{model_file_name}.pth')
+    await download_file(model_file_url, PATH/'models'/f'{model_file_name}.pth')
+    # await download_file(model_file_url, PATH/'models')
 
     arch = models.resnet34
     src = ImageImageList.from_folder(MARKED).random_split_by_pct(0.1, seed=42)
@@ -58,14 +79,29 @@ async def setup_gan_learner():
     y_range = (-3.,3.)
     loss_gen = MSELossFlat()
 
+    def get_data(bs,size,src,clean_path):
+        tfms = get_transforms(do_flip=False, max_rotate=5.0, max_zoom=1.05, max_warp=0)
+        
+        data = (src.label_from_func(lambda x: clean_path/x.name)
+            .transform(tfms, size=size, tfm_y=True)
+            .databunch(bs=bs).normalize(imagenet_stats, do_y=True))
+
+        data.c = 3
+        return data
+
     data_gen = get_data(bs, size, src, CLEAN)
 
+    def create_gen_learner():
+        return unet_learner(data_gen, arch, wd=wd, blur=True, norm_type=NormType.Weight,
+                            self_attention=True, y_range=y_range, loss_func=loss_gen)
+
     learn_gen = create_gen_learner()
-    os.system(f"mv {MARKED}/'models' {PATH}")
+    # os.system(f"mv {MARKED}/'models' {PATH}")
     learn_gen.path = PATH
+    # learn_gen.model_dir = PATH
 
     learn_gen.load(model_file_name)
-    learn_gen = learn
+    learn = learn_gen
 
     return learn
 
